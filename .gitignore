@@ -1,0 +1,17 @@
+# Secrets / local config
+.env
+.env.*
+
+# Python
+.venv/
+__pycache__/
+*.pyc
+
+# Local model + binaries
+models/
+tools/
+
+# OS/editor noise
+.DS_Store
+Thumbs.db
+.vscode/
