@@ -10,6 +10,7 @@ __pycache__/
 # Local model + binaries
 models/
 tools/
+assets/
 
 # OS/editor noise
 .DS_Store
