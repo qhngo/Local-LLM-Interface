@@ -118,3 +118,8 @@ Example:
 - Model requests are sent to `http://127.0.0.1:8080/v1/chat/completions`.
 - Startup fails if the model file or `llama-server.exe` is missing.
 - The service includes retry logic for transient model-server failures.
+
+## References
+
+- SeaLLM-7B-v2 (GGUF): https://huggingface.co/SeaLLMs/SeaLLM-7B-v2-gguf
+- llama.cpp: https://github.com/ggml-org/llama.cpp
