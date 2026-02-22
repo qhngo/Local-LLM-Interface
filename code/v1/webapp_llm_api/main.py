@@ -221,6 +221,7 @@ def _enqueue_and_wait(
 ) -> AnswerResponse:
     queue_size = REQUEST_QUEUE.qsize()
     print(f"Queue size before enqueue: {queue_size}")
+    print(f"Received question: {_extract_prompt(received)}")
     event = Event()
     with REQUEST_LOCK:
         REQUEST_RESULTS[request_id] = {
