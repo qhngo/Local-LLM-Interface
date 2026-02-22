@@ -82,9 +82,12 @@ class AnswerResponse(BaseModel):
     input_type: str
     answer: Optional[str] = None
     processing_time_s: Optional[float] = None
+    prompt_tokens: Optional[int] = None
+    completion_tokens: Optional[int] = None
+    total_tokens: Optional[int] = None
 
 
-def process_request(item: Dict[str, Any]) -> str:
+def process_request(item: Dict[str, Any]) -> Dict[str, Any]:
     prompt = _extract_prompt(item.get("received"))
     return _call_llama_server(prompt)
 
@@ -117,7 +120,7 @@ def _extract_prompt_from_dict(data: Dict[str, Any]) -> str:
     return json.dumps(data)
 
 
-def _call_llama_server(prompt: str) -> str:
+def _call_llama_server(prompt: str) -> Dict[str, Any]:
     base_url = SETTINGS.llama_server_url.rstrip("/")
     url = f"{base_url}/v1/chat/completions"
     payload = {
@@ -133,7 +136,17 @@ def _call_llama_server(prompt: str) -> str:
             request = Request(url, data=body, headers=headers, method="POST")
             with urlopen(request, timeout=SETTINGS.llama_request_timeout_s) as response:
                 data = json.loads(response.read().decode("utf-8"))
-            return _extract_llama_answer(data)
+            usage = _extract_llama_usage(data)
+            if usage is not None:
+                print(
+                    "LLM token usage: "
+                    f"prompt={usage['prompt_tokens']}, "
+                    f"completion={usage['completion_tokens']}, "
+                    f"total={usage['total_tokens']}"
+                )
+            else:
+                print("LLM token usage not available in response")
+            return {"answer": _extract_llama_answer(data), "usage": usage}
         except (URLError, HTTPError, json.JSONDecodeError, TimeoutError) as exc:
             last_error = exc
             if SETTINGS.llama_max_retries == 0:
@@ -159,12 +172,30 @@ def _extract_llama_answer(data: Dict[str, Any]) -> str:
     return ""
 
 
+def _extract_llama_usage(data: Dict[str, Any]) -> Optional[Dict[str, int]]:
+    usage = data.get("usage")
+    if not isinstance(usage, dict):
+        return None
+
+    prompt_tokens = usage.get("prompt_tokens")
+    completion_tokens = usage.get("completion_tokens")
+    total_tokens = usage.get("total_tokens")
+    if not all(isinstance(value, int) for value in (prompt_tokens, completion_tokens, total_tokens)):
+        return None
+
+    return {
+        "prompt_tokens": prompt_tokens,
+        "completion_tokens": completion_tokens,
+        "total_tokens": total_tokens,
+    }
+
+
 def request_worker() -> None:
     while True:
         item = REQUEST_QUEUE.get()
         try:
             start_time = time.perf_counter()
-            answer = process_request(item)
+            llm_result = process_request(item)
             elapsed_s = round(time.perf_counter() - start_time, 2)
             print(
                 f"Processed request {item['id']} in {elapsed_s:.2f}s "
@@ -173,8 +204,13 @@ def request_worker() -> None:
             with REQUEST_LOCK:
                 result = REQUEST_RESULTS.get(item["id"])
                 if result is not None:
-                    result["answer"] = answer
+                    result["answer"] = llm_result.get("answer")
                     result["processing_time_s"] = elapsed_s
+                    usage = llm_result.get("usage")
+                    if isinstance(usage, dict):
+                        result["prompt_tokens"] = usage.get("prompt_tokens")
+                        result["completion_tokens"] = usage.get("completion_tokens")
+                        result["total_tokens"] = usage.get("total_tokens")
                     REQUEST_EVENTS[item["id"]].set()
         finally:
             REQUEST_QUEUE.task_done()
@@ -229,6 +265,9 @@ def _enqueue_and_wait(
             "input_type": input_type,
             "answer": None,
             "processing_time_s": None,
+            "prompt_tokens": None,
+            "completion_tokens": None,
+            "total_tokens": None,
         }
         REQUEST_EVENTS[request_id] = event
     REQUEST_QUEUE.put(
@@ -243,6 +282,9 @@ def _enqueue_and_wait(
         input_type=result["input_type"],
         answer=result["answer"],
         processing_time_s=result.get("processing_time_s"),
+        prompt_tokens=result.get("prompt_tokens"),
+        completion_tokens=result.get("completion_tokens"),
+        total_tokens=result.get("total_tokens"),
     )
 
 
